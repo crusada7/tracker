@@ -39,6 +39,7 @@
   --cyan:#34F5EC;
   --orange:#F87C40;
   --danger:#E5484D;
+  --rest:#63666E;                 /* «осталось» на графиках: 3.31:1 к поверхности */
   --lime-dim:rgba(180,241,60,.12);
   --cyan-dim:rgba(52,245,236,.12);
 
@@ -111,7 +112,10 @@ a{color:inherit}
   font-size:13.5px;color:var(--ink-2);transition:background .15s,color .15s;
 }
 .nav:hover{background:var(--surface-2);color:var(--ink)}
-.nav[aria-pressed="true"]{background:var(--surface-3);color:var(--ink);font-weight:500}
+.nav[aria-pressed="true"]{
+  background:var(--surface-3);color:var(--ink);font-weight:500;
+  box-shadow:inset 2px 0 0 var(--lime);
+}
 .nav .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav .ct{font-size:11px;color:var(--ink-3);flex:none}
 .nav[aria-pressed="true"] .ct{color:var(--lime)}
@@ -188,9 +192,16 @@ select.sort{
 
 /* ---------- верхний ряд: следующий шаг + прогресс ---------- */
 .hero{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;margin-bottom:26px}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px}
+.panel{
+  background:linear-gradient(158deg,var(--surface-2),var(--surface) 58%);
+  border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;
+}
 
-.next{display:flex;flex-direction:column;gap:12px}
+.next{
+  display:flex;flex-direction:column;gap:12px;
+  background:linear-gradient(150deg,rgba(180,241,60,.07),var(--surface-2) 42%,var(--surface) 78%);
+  border-color:rgba(180,241,60,.16);
+}
 .next .t{font-family:var(--disp);font-weight:600;font-size:20px;letter-spacing:-.02em;line-height:1.25;margin:0}
 .next .t small{display:block;font-family:var(--ui);font-weight:400;font-size:13px;color:var(--ink-3);margin-top:3px;letter-spacing:0}
 .next .m{font-size:12.5px;color:var(--ink-3);margin-top:auto}
@@ -224,7 +235,9 @@ select.sort{
 
 .sec-head{
   display:flex;align-items:center;gap:11px;width:100%;text-align:left;
-  padding:9px 0;margin-bottom:6px;border-bottom:1px solid var(--line);min-height:44px;
+  padding:9px 0;margin-bottom:6px;min-height:44px;
+  border-bottom:1px solid transparent;
+  border-image:linear-gradient(90deg,var(--line-2),transparent 82%) 1;
 }
 .sec-head h2{font-family:var(--disp);font-size:16px;font-weight:600;letter-spacing:-.015em;margin:0}
 .sec-head .caret{color:var(--ink-3);font-size:11px;transition:transform .2s var(--ease);flex:none}
@@ -271,6 +284,60 @@ select.sort{
 .node.done{border-color:var(--lime);background:var(--lime);color:var(--on-accent)}
 .node.pop{animation:pop .38s var(--ease)}
 @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
+
+
+/* ============================================================
+   ГРАФИКИ
+   Цвет здесь несёт состояние, а не украшает: лайм — готово,
+   циан — в работе, серый — осталось. Пара лайм/циан проверена
+   валидатором: ΔE 19.4 при протанопии, порог 8.
+   ============================================================ */
+.prog-in{display:flex;gap:18px;align-items:center}
+.ringsvg{width:132px;height:132px;flex:none;overflow:visible}
+.ringsvg .track{stroke:var(--line-2);opacity:.45}
+.ringsvg .arc{transition:stroke-width .18s var(--ease)}
+.ringsvg .arc:hover{stroke-width:14}
+.ringnum{font-family:var(--disp);font-weight:600;font-size:27px;fill:var(--ink)}
+.ringsub{font-size:11px;fill:var(--ink-3)}
+.prog-side{min-width:0;flex:1}
+.prog-side .legend{flex-direction:column;gap:9px}
+.mxpanel{margin-bottom:26px}
+
+/* Матрица «знание × резюме»: одна точка — один сертификат.
+   Ничего не усредняется, поэтому врать графику нечем. */
+.mx{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:6px}
+.mx-y{display:grid;place-items:center;padding-right:8px;font-size:11px;color:var(--ink-2);white-space:nowrap}
+.mx-cell{
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:22px 9px 9px;min-height:74px;position:relative;
+  display:flex;flex-wrap:wrap;align-content:flex-start;gap:5px;
+}
+.mx-cell .cnt{position:absolute;top:6px;right:9px;font-size:10px;color:var(--ink-3)}
+.mx-cell.hot{border-color:rgba(180,241,60,.28);background:linear-gradient(160deg,var(--lime-dim),var(--surface-2) 70%)}
+.mx-x{grid-column:2/5;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  font-size:11px;color:var(--ink-3);text-align:center;padding-top:6px}
+.mx-cap{font-size:11.5px;color:var(--ink-3);margin-top:10px}
+
+.dot{
+  width:11px;height:11px;border-radius:50%;padding:0;flex:none;
+  background:var(--rest);position:relative;transition:transform .15s var(--ease);
+}
+/* Зона нажатия шире самой точки — по 8px в каждую сторону */
+.dot::after{content:"";position:absolute;inset:-8px;border-radius:50%}
+.dot.mid{background:var(--cyan)}
+.dot.done{background:var(--lime)}
+.dot:hover,.dot:focus-visible{transform:scale(1.45);z-index:2}
+
+/* Подсказка при наведении — обязательный слой для любого графика */
+#tip{
+  position:fixed;z-index:90;pointer-events:none;opacity:0;transition:opacity .12s;
+  background:var(--surface-3);border:1px solid var(--line-2);border-radius:var(--r-xs);
+  padding:7px 10px;font-size:12px;max-width:250px;line-height:1.4;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+#tip.is-shown{opacity:1}
+#tip b{font-weight:600}
+#tip span{color:var(--ink-3)}
 
 /* Проявление строк. Раньше это делал IntersectionObserver и строки застревали
    невидимыми: он гасил их заранее, а событие показа для части уже не приходило. */
@@ -451,6 +518,15 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
   .drawer.is-shown{transform:none}
   .drawer-head{padding:16px 16px 13px}
   .drawer-body{padding:16px 16px 32px}
+  /* На узком экране точки мельче: в строку помещается шесть вместо трёх,
+     и самая полная ячейка становится вчетверо ниже. 8px — нижний предел
+     читаемого маркера, ниже опускаться нельзя. */
+  .dot{width:8px;height:8px}
+  .mx-cell{padding:20px 7px 7px;gap:4px;min-height:56px}
+  .mx-y{font-size:10.5px;padding-right:5px}
+  .mx{gap:5px}
+  .ringsvg{width:112px;height:112px}
+  .prog-in{gap:14px}
   .row{padding:12px 10px}
   /* Apple HIG: минимальная зона нажатия 44pt. На десктопе мышью хватает меньшего,
      на телефоне — нет. Заодно select от 16px, иначе Safari зумит при фокусе. */
@@ -559,6 +635,13 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
       <div class="panel prog" id="prog"></div>
     </div>
 
+    <div class="panel mxpanel">
+      <div class="eyebrow">Знание против резюме</div>
+      <div class="mx" id="mx"></div>
+      <p class="mx-cap">Каждая точка — один сертификат, цвет тот же, что в кольце.
+        Слева вверху то, что учит, но в резюме не видно. Справа внизу — наоборот.</p>
+    </div>
+
     <main id="out"></main>
 
     <div class="foot">
@@ -585,6 +668,7 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
 </aside>
 
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="tip" role="tooltip"></div>
 
 <script>
 const D=[
@@ -1302,20 +1386,76 @@ function renderNext(){
     <div class="m num">осталось ${left.length} бесплатных, примерно ${Math.round(hrs)} ч</div>`;
 }
 
+/* Кольцо прогресса. Три сегмента — доли одного целого, между ними
+   зазор в 3 единицы длины дуги, чтобы соседние заливки не слипались. */
+function ring(done,mid,rest,total){
+  const R=52, C=2*Math.PI*R;
+  const parts=[["готово",done,"var(--lime)"],["в работе",mid,"var(--cyan)"],["осталось",rest,"var(--rest)"]]
+    .filter(p=>p[1]>0);
+  const gap=parts.length>1?3:0;
+  let acc=0;
+  const arcs=parts.map(([label,v,col])=>{
+    const frac=v/total;
+    const draw=Math.max(frac*C-gap,1);          // длина видимой дуги
+    const off=-acc*C;                            // сдвиг начала по окружности
+    acc+=frac;
+    return `<circle class="arc" r="${R}" cx="60" cy="60" fill="none" stroke="${col}" stroke-width="11"
+      stroke-dasharray="${draw.toFixed(2)} ${(C-draw).toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"
+      data-tip-t="${label}" data-tip-s="${v} из ${total} · ${Math.round(v/total*100)}%"></circle>`;
+  }).join("");
+  return `<svg class="ringsvg" viewBox="0 0 120 120" role="img"
+    aria-label="Прогресс: готово ${done}, в работе ${mid}, осталось ${rest} из ${total}">
+    <g transform="rotate(-90 60 60)">
+      <circle class="track" r="${R}" cx="60" cy="60" fill="none" stroke-width="11"/>
+      ${arcs}
+    </g>
+    <text class="ringnum" x="60" y="57" text-anchor="middle">${done}</text>
+    <text class="ringsub" x="60" y="74" text-anchor="middle">из ${total}</text>
+  </svg>`;
+}
+
 function renderProg(){
   const done=D.filter(d=>st(d.id)===2).length, mid=D.filter(d=>st(d.id)===1).length;
+  const rest=D.length-done-mid;
   const free=D.filter(d=>d.cost==="free"), freeDone=free.filter(d=>st(d.id)===2).length;
   const pct=Math.round(done/D.length*100);
   document.getElementById("prog").innerHTML=
     `<div class="eyebrow">Общий прогресс</div>
-     <div class="big num" style="margin-top:8px">${done}<span> / ${D.length}</span></div>
-     <div class="cap num">${pct}% пути · бесплатных закрыто ${freeDone} из ${free.length}</div>
-     <div class="rail">${D.map(d=>`<i class="${st(d.id)===2?"done":st(d.id)===1?"mid":""}"></i>`).join("")}</div>
-     <div class="legend">
-       <span><i class="d done"></i>готово <b class="num">${done}</b></span>
-       <span><i class="d mid"></i>в работе <b class="num">${mid}</b></span>
-       <span><i class="d rest"></i>осталось <b class="num">${D.length-done-mid}</b></span>
+     <div class="prog-in">
+       ${ring(done,mid,rest,D.length)}
+       <div class="prog-side">
+         <div class="legend">
+           <span><i class="d done"></i>готово <b class="num">${done}</b></span>
+           <span><i class="d mid"></i>в работе <b class="num">${mid}</b></span>
+           <span><i class="d rest"></i>осталось <b class="num">${rest}</b></span>
+         </div>
+         <div class="cap num" style="margin:14px 0 0">${pct}% пути · бесплатных закрыто ${freeDone} из ${free.length}</div>
+       </div>
      </div>`;
+}
+
+/* Матрица «знание × резюме». Единичный график: одна точка — один сертификат,
+   ничего не усредняется. Клик по точке открывает её подробности. */
+function renderMatrix(){
+  const WL={1:"низкий",2:"средний",3:"высокий"};
+  let h="";
+  for(let kn=3;kn>=1;kn--){
+    h+=`<div class="mx-y">${KLBL[kn]}</div>`;
+    for(let w=1;w<=3;w++){
+      const items=D.filter(d=>d.kn===kn&&d.w===w);
+      h+=`<div class="mx-cell${kn===3&&w===2?" hot":""}">
+        <span class="cnt num">${items.length||""}</span>
+        ${items.map(d=>{
+          const s=st(d.id), sl=s===2?"готово":s===1?"в работе":"не начато";
+          return `<button class="dot ${s===2?"done":s===1?"mid":""}" data-open="${d.id}"
+            data-tip-t="${esc(d.n)}" data-tip-s="${esc(d.p)} · ${sl}"
+            aria-label="${esc(d.n)}, ${esc(d.p)}. Состояние: ${sl}"></button>`;
+        }).join("")}
+      </div>`;
+    }
+  }
+  h+=`<div class="mx-x">${[1,2,3].map(w=>`<span>${WL[w]}</span>`).join("")}</div>`;
+  document.getElementById("mx").innerHTML=h;
 }
 
 function renderTracks(){
@@ -1421,7 +1561,7 @@ function secBody(key,items){
 }
 
 function render(){
-  renderProg();renderTracks();renderWaves();renderNext();
+  renderProg();renderMatrix();renderTracks();renderWaves();renderNext();
 
   const out=document.getElementById("out"), vis=sortItems(D.filter(pass));
 
@@ -1568,6 +1708,40 @@ function toggleSide(on){
 /* ============================================================
    СОБЫТИЯ
    ============================================================ */
+/* ============================================================
+   ПОДСКАЗКА ПРИ НАВЕДЕНИИ
+   Текст кладём через textContent, а не innerHTML: тогда любые
+   символы из данных остаются текстом и не могут стать разметкой.
+   ============================================================ */
+const tipEl=document.getElementById("tip");
+function showTip(el){
+  tipEl.textContent="";
+  const b=document.createElement("b");   b.textContent=el.dataset.tipT||"";
+  const sp=document.createElement("span");sp.textContent=el.dataset.tipS||"";
+  tipEl.append(b,document.createElement("br"),sp);
+  tipEl.classList.add("is-shown");
+  const r=el.getBoundingClientRect(), t=tipEl.getBoundingClientRect();
+  /* ставим над элементом по центру и не даём вылезти за края экрана */
+  let x=r.left+r.width/2-t.width/2;
+  x=Math.max(8,Math.min(x,innerWidth-t.width-8));
+  let y=r.top-t.height-8;
+  if(y<8)y=r.bottom+8;                   // не помещается сверху — уводим вниз
+  tipEl.style.left=x+"px";tipEl.style.top=y+"px";
+}
+function hideTip(){tipEl.classList.remove("is-shown")}
+
+document.addEventListener("pointerover",e=>{
+  const el=e.target.closest&&e.target.closest("[data-tip-t]");
+  if(el)showTip(el); else hideTip();
+});
+document.addEventListener("pointerdown",hideTip);
+addEventListener("scroll",hideTip,{passive:true});
+/* с клавиатуры подсказка тоже нужна — иначе точка молчит */
+document.addEventListener("focusin",e=>{
+  const el=e.target.closest&&e.target.closest("[data-tip-t]");
+  if(el)showTip(el); else hideTip();
+});
+
 document.addEventListener("click",e=>{
   /* отметка — раньше всего остального, иначе сработает открытие панели */
   const n=e.target.closest(".node");
