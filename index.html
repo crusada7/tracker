@@ -256,7 +256,23 @@ select.sort{
   transition:background .15s,border-color .15s;min-height:56px;
 }
 .row+.row{margin-top:2px}
-.row:hover{background:var(--surface);border-color:var(--line)}
+/* hover:hover — только там, где есть настоящий курсор. На тач-экране
+   :hover залипает после касания, и подсветка осталась бы висеть. */
+@media (hover:hover){
+  .row{transition:transform .24s var(--ease),box-shadow .24s var(--ease),
+       border-color .24s,background .24s}
+  .row:hover{
+    background:linear-gradient(160deg,rgba(180,241,60,.05),var(--surface) 55%);
+    border-color:rgba(180,241,60,.34);
+    transform:scale(1.012);
+    /* три слоя: тонкий контур, мягкое свечение наружу, тень для глубины */
+    box-shadow:0 0 0 1px rgba(180,241,60,.16),
+               0 0 26px -6px rgba(180,241,60,.42),
+               0 10px 30px -14px rgba(0,0,0,.9);
+    position:relative;z-index:1;
+  }
+  .row:hover .nm{color:var(--lime)}
+}
 .row.is-done{opacity:.62}
 .row.is-done:hover{opacity:1}
 .row .body{flex:1;min-width:0}
@@ -284,7 +300,79 @@ select.sort{
 .node.done{border-color:var(--lime);background:var(--lime);color:var(--on-accent)}
 .node.pop{animation:pop .38s var(--ease)}
 @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
+/* Волна, расходящаяся от кружка в момент закрытия пункта */
+.node.pop::after{
+  content:"";position:absolute;inset:-3px;border-radius:50%;
+  border:2px solid var(--lime);animation:ripple .72s var(--ease) forwards;
+}
+@keyframes ripple{from{transform:scale(.9);opacity:.85}to{transform:scale(2.2);opacity:0}}
 
+
+/* ============================================================
+   «ОРБИТЫ» — фирменный рисунок страницы
+   Шесть колец = шесть волн, точка = сертификат, цвет = состояние,
+   размер = ценность знания. Рисунок собран из тех же данных, что и
+   список, поэтому меняется вместе с прогрессом.
+   ============================================================ */
+.head{display:grid;grid-template-columns:1fr auto;gap:28px;align-items:center}
+.head-tx{min-width:0}
+.orb{width:300px;height:300px;flex:none;overflow:visible}
+
+/* Кольцо орбиты. Наклон и сжатие заданы атрибутом transform на группе-родителе,
+   поэтому вращение внутри читается как движение по эллипсу, а не как качание. */
+.orb .oring{fill:none;stroke:var(--line-2);stroke-width:.7;opacity:.45}
+.orbit{transform-origin:150px 150px;transform-box:view-box;
+  animation:spin var(--dur,120s) linear infinite;will-change:transform}
+.orbit.rev{animation-direction:reverse}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.odot{fill:var(--rest);opacity:.7}
+.odot.o-mid{fill:var(--cyan);opacity:1}
+.odot.o-done{fill:var(--lime);opacity:1;filter:drop-shadow(0 0 4px rgba(180,241,60,.9))}
+
+/* Звёздная пыль: мерцает вразнобой за счёт разной задержки у каждой точки */
+.orb-star{fill:#fff;opacity:.22;animation:twinkle var(--td,7s) ease-in-out var(--tdelay,0s) infinite}
+@keyframes twinkle{0%,100%{opacity:.10}50%{opacity:.42}}
+
+/* Комета: хвост — дуга с затухающим градиентом, голова — точка со свечением */
+.comet{transform-origin:150px 150px;transform-box:view-box;
+  animation:spin 26s linear infinite;will-change:transform}
+.comet-head{fill:var(--lime);filter:drop-shadow(0 0 5px rgba(180,241,60,1))}
+
+/* Ядро: то же кольцо с сердцевиной, что в знаке и в отметке */
+.oglow{opacity:.55;animation:glowpulse 9s ease-in-out infinite}
+@keyframes glowpulse{0%,100%{opacity:.38}50%{opacity:.7}}
+.ocore{fill:var(--lime);animation:breathe 5.5s ease-in-out infinite}
+.ocore-h{fill:none;stroke:var(--lime);stroke-width:1.2;opacity:.5;
+  transform-origin:150px 150px;transform-box:view-box;
+  animation:halo 5.5s ease-out infinite}
+@keyframes breathe{0%,100%{opacity:.95}50%{opacity:.62}}
+@keyframes halo{0%{transform:scale(1);opacity:.5}70%,100%{transform:scale(2.6);opacity:0}}
+
+/* Вся система едва заметно покачивается — этого не видно глазом,
+   но картинка перестаёт быть мёртвой */
+.system{transform-origin:150px 150px;transform-box:view-box;
+  animation:sway 22s ease-in-out infinite;will-change:transform}
+@keyframes sway{0%,100%{transform:rotate(-1.2deg) scale(1)}50%{transform:rotate(1.2deg) scale(1.022)}}
+
+/* Плёночное зерно поверх всего. Статичный слой, ничего не пересчитывает:
+   даёт странице фактуру вместо стерильной заливки. */
+.grain{
+  position:fixed;inset:0;z-index:100;pointer-events:none;opacity:.038;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:180px 180px;
+}
+
+/* Ореол за шапкой. Два радиальных градиента без blur и без анимации —
+   стоит ноль, в отличие от прежних размытых пятен. */
+.content{position:relative}
+.aurora{
+  position:absolute;left:0;right:0;top:-60px;height:340px;
+  z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(70% 100% at 6% 0%,rgba(180,241,60,.11),transparent 70%),
+    radial-gradient(58% 92% at 80% 6%,rgba(52,245,236,.075),transparent 72%);
+}
 
 /* ============================================================
    ГРАФИКИ
@@ -367,7 +455,18 @@ select.sort{
   padding:16px;display:flex;flex-direction:column;gap:11px;text-align:left;width:100%;
   transition:border-color .18s,background .18s,transform .18s var(--ease);
 }
-.card:hover{border-color:var(--line-2);background:var(--surface-2);transform:translateY(-2px)}
+@media (hover:hover){
+  .card:hover{
+    background:linear-gradient(160deg,rgba(180,241,60,.06),var(--surface-2) 58%);
+    border-color:rgba(180,241,60,.34);
+    transform:translateY(-3px) scale(1.014);
+    box-shadow:0 0 0 1px rgba(180,241,60,.16),
+               0 0 30px -6px rgba(180,241,60,.4),
+               0 14px 34px -16px rgba(0,0,0,.9);
+    position:relative;z-index:1;
+  }
+  .card:hover .nm{color:var(--lime)}
+}
 .card.is-done{border-color:rgba(180,241,60,.28)}
 .card .top{display:flex;gap:11px;align-items:flex-start}
 .card .nm{font-family:var(--disp);font-size:14.5px;font-weight:500;letter-spacing:-.01em;margin:0}
@@ -527,6 +626,10 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
   .mx{gap:5px}
   .ringsvg{width:112px;height:112px}
   .prog-in{gap:14px}
+  .head{grid-template-columns:1fr;gap:18px;justify-items:center}
+  .head-tx{order:-1}
+  .orb{width:212px;height:212px}
+  .orbit,.comet,.system,.orb-star,.oglow{animation:none}
   .row{padding:12px 10px}
   /* Apple HIG: минимальная зона нажатия 44pt. На десктопе мышью хватает меньшего,
      на телефоне — нет. Заодно select от 16px, иначе Safari зумит при фокусе. */
@@ -550,7 +653,9 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
 /* уважение к системной настройке «уменьшить движение» */
 @media (prefers-reduced-motion:reduce){
   *{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
-  .row,.card{opacity:1!important;transform:none!important}
+  .row,.card{opacity:1!important}
+  .row:hover,.card:hover{transform:none!important}
+  .orbit,.ocore,.ocore-h,.comet,.system,.orb-star,.oglow{animation:none!important}
 }
 
 @media (display-mode:standalone){
@@ -559,12 +664,19 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
 }
 </style>
 
+<div class="grain" aria-hidden="true"></div>
+
 <div class="app">
 
 <!-- ================= боковая панель ================= -->
 <aside class="side" id="side">
   <div class="brand">
-    <div class="mark">С</div>
+    <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" width="17" height="17">
+      <path d="M12 3.4a8.6 8.6 0 1 0 8.6 8.6" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="3.1" fill="currentColor"/>
+    </svg>
+  </div>
     <div class="tx"><b>Сертификаты</b><span>карта прохождения</span></div>
   </div>
 
@@ -625,9 +737,14 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
   </div>
 
   <div class="content">
+    <div class="aurora" aria-hidden="true"></div>
     <div class="head">
-      <h1>Сертификаты от первоисточников</h1>
-      <p class="sub">Отранжировано по ценности знания, а не по строчке в резюме. Сертификат — приятный бонус, где он есть. Нажми на кружок: не начато → в работе → готово.</p>
+      <div class="head-tx">
+        <h1>Сертификаты от первоисточников</h1>
+        <p class="sub">Отранжировано по ценности знания, а не по строчке в резюме. Сертификат — приятный бонус, где он есть. Нажми на кружок: не начато → в работе → готово.</p>
+      </div>
+      <svg class="orb" id="orb" viewBox="0 0 300 300" role="img"
+        aria-label="Карта прохождения: 82 сертификата на шести кольцах по волнам"></svg>
     </div>
 
     <div class="hero">
@@ -1436,6 +1553,82 @@ function renderProg(){
 
 /* Матрица «знание × резюме». Единичный график: одна точка — один сертификат,
    ничего не усредняется. Клик по точке открывает её подробности. */
+/* Рисунок строится из тех же данных. Угол точки задан её местом внутри
+   волны, поэтому картинка у каждого набора своя и узнаваемая. */
+function renderOrbits(){
+  const el=document.getElementById("orb");if(!el)return;
+
+  /* Перестраиваем разметку только один раз. Иначе при каждом клике по фильтру
+     анимация стартовала бы заново и картинка дёргалась. Дальше — только цвета. */
+  if(el.dataset.built){
+    el.querySelectorAll(".odot").forEach(c=>{
+      const s=st(c.dataset.id);
+      c.classList.toggle("o-done",s===2);
+      c.classList.toggle("o-mid",s===1);
+    });
+    return;
+  }
+
+  const CX=150, CY=150, R0=27, STEP=16.5;
+  const TILT=[-22,14,-9,26,-31,7];        // наклон каждой орбиты, градусы
+  const SQUASH=[.58,.72,.5,.66,.78,.55];  // сжатие: чем меньше, тем «с ребра»
+
+  /* Звёздная пыль. Генератор с постоянным зерном — расположение
+     не меняется между перерисовками и перезагрузками. */
+  let seed=20260906, rnd=()=>((seed=seed*1103515245+12345&0x7fffffff)/0x7fffffff);
+  let stars="";
+  for(let i=0;i<18;i++){
+    const a=rnd()*Math.PI*2, d=34+rnd()*118;
+    stars+=`<circle class="orb-star" cx="${(CX+d*Math.cos(a)).toFixed(1)}" cy="${(CY+d*Math.sin(a)).toFixed(1)}"
+      r="${(.45+rnd()*.8).toFixed(2)}" style="--td:${(5+rnd()*7).toFixed(1)}s;--tdelay:${(rnd()*6).toFixed(1)}s"/>`;
+  }
+
+  let rings="";
+  [1,2,3,4,5,6].forEach((wv,i)=>{
+    const items=D.filter(d=>d.wv===wv);
+    if(!items.length)return;
+    const r=R0+STEP*i;
+    const dots=items.map((d,k)=>{
+      const a=(k/items.length)*Math.PI*2 + i*0.62;
+      const x=(CX+r*Math.cos(a)).toFixed(1), y=(CY+r*Math.sin(a)).toFixed(1);
+      const s=st(d.id);
+      const rad=d.kn===3?3.2:d.kn===2?2.5:1.9;
+      return `<circle class="odot ${s===2?"o-done":s===1?"o-mid":""}" data-id="${d.id}"
+        cx="${x}" cy="${y}" r="${rad}"/>`;
+    }).join("");
+    /* Наклон и сжатие — статичным атрибутом. Вращается вложенная группа,
+       и сквозь сжатие круговое движение читается как эллиптическая орбита. */
+    rings+=`<g transform="rotate(${TILT[i]} ${CX} ${CY}) translate(${CX} ${CY}) scale(1 ${SQUASH[i]}) translate(${-CX} ${-CY})">
+      <g class="orbit${i%2?" rev":""}" style="--dur:${86+i*24}s">
+        <circle class="oring" cx="${CX}" cy="${CY}" r="${r}"/>${dots}
+      </g></g>`;
+  });
+
+  el.innerHTML=`
+    <defs>
+      <radialGradient id="og"><stop offset="0" stop-color="#B4F13C" stop-opacity=".30"/>
+        <stop offset="55%" stop-color="#34F5EC" stop-opacity=".07"/>
+        <stop offset="100%" stop-color="#B4F13C" stop-opacity="0"/></radialGradient>
+      <linearGradient id="ct" gradientUnits="userSpaceOnUse" x1="241.7" y1="85.8" x2="262" y2="150">
+        <stop offset="0" stop-color="#B4F13C" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#B4F13C" stop-opacity=".85"/></linearGradient>
+    </defs>
+    <circle class="oglow" cx="${CX}" cy="${CY}" r="128" fill="url(#og)"/>
+    <g class="stars">${stars}</g>
+    <g class="system">
+      ${rings}
+      <g transform="rotate(-16 ${CX} ${CY}) translate(${CX} ${CY}) scale(1 .6) translate(${-CX} ${-CY})">
+        <g class="comet">
+          <path d="M241.7,85.8 A112,112 0 0,1 262,150" fill="none" stroke="url(#ct)" stroke-width="1.6" stroke-linecap="round"/>
+          <circle class="comet-head" cx="262" cy="150" r="2.2"/>
+        </g>
+      </g>
+    </g>
+    <circle class="ocore-h" cx="${CX}" cy="${CY}" r="7"/>
+    <circle class="ocore" cx="${CX}" cy="${CY}" r="4.6"/>`;
+  el.dataset.built="1";
+}
+
 function renderMatrix(){
   const WL={1:"низкий",2:"средний",3:"высокий"};
   let h="";
@@ -1561,7 +1754,7 @@ function secBody(key,items){
 }
 
 function render(){
-  renderProg();renderMatrix();renderTracks();renderWaves();renderNext();
+  renderProg();renderOrbits();renderMatrix();renderTracks();renderWaves();renderNext();
 
   const out=document.getElementById("out"), vis=sortItems(D.filter(pass));
 
