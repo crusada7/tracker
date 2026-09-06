@@ -320,7 +320,7 @@ select.sort{
    уходит за правый край и живёт под текстом. Текст читаем за счёт
    градиентной шторки между ним и картинкой.
    ============================================================ */
-.head{position:relative;min-height:360px;display:flex;align-items:center;margin-bottom:10px;overflow:hidden}
+.head{position:relative;min-height:452px;display:flex;align-items:center;margin-bottom:10px;overflow:hidden}
 .head-tx{position:relative;z-index:2;max-width:min(540px,58%)}
 .head::after{
   content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
@@ -331,6 +331,11 @@ select.sort{
   right:-5%;top:50%;transform:translateY(-50%);
   width:min(880px,80%);height:auto;
 }
+/* Холст и SVG занимают одно место. Пока WebGL не поднялся, виден SVG;
+   как только контекст создан, на .head появляется gl-on и они меняются. */
+.orbgl{aspect-ratio:900/452;height:auto;display:none}
+.head.gl-on .orbgl{display:block}
+.head.gl-on #orb{display:none}
 
 /* --- атмосфера: туманности и диск, всё статикой на градиентах --- */
 .neb{animation:drift 34s ease-in-out infinite}
@@ -761,6 +766,7 @@ td .lnk:hover{color:var(--lime);border-color:var(--lime)}
   <div class="content">
     <div class="aurora" aria-hidden="true"></div>
     <div class="head">
+      <canvas class="orb orbgl" id="orbgl" aria-hidden="true"></canvas>
       <svg class="orb" id="orb" viewBox="0 0 900 520" role="img"
         aria-label="Карта прохождения: 82 сертификата на шести орбитах по волнам"></svg>
       <div class="head-tx">
@@ -1856,6 +1862,7 @@ function render(){
     });
   }
   out.innerHTML=h;
+  if(orbRedraw)orbRedraw();
 }
 
 /* ============================================================
@@ -2083,8 +2090,274 @@ document.getElementById("copyBtn").onclick=()=>{
 document.getElementById("expBtn").onclick=exportProgress;
 document.getElementById("impBtn").onclick=importProgress;
 
+/* ============================================================
+   «ОРБИТЫ» НА WEBGL
+   SVG остаётся в разметке как запасной вариант: если контекст не
+   создаётся или теряется, страница показывает векторную версию.
+   ============================================================ */
+let orbRedraw=null;   // точка входа для перерисовки одиночного кадра
+
+const GLSL_BG_V=`attribute vec2 p;varying vec2 uv;
+void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`;
+
+/* Фон: объёмная туманность на шуме с искажением области + звёзды.
+   Считается попиксельно — отсюда и берётся ощущение глубины. */
+const GLSL_BG_F=`precision highp float;
+varying vec2 uv;uniform vec2 uRes;uniform float uT;
+float h(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float s=0.,a=.5;for(int i=0;i<5;i++){s+=a*n(p);p*=2.03;a*=.5;}return s;}
+void main(){
+  vec2 q=(gl_FragCoord.xy-.5*uRes)/uRes.y;
+  /* искажение области: шум, сдвинутый другим шумом, — так газ перестаёт
+     выглядеть равномерной кашей и получает волокна */
+  vec2 w=vec2(fbm(q*2.4+uT*.012),fbm(q*2.4+vec2(5.2,1.3)-uT*.009));
+  float d=fbm(q*3.1+w*1.6);
+  d=pow(max(d-.40,0.),1.9)*2.0;
+  vec3 col=mix(vec3(.05,.075,.05),vec3(.34,.60,.14),d)*d*.42;
+  col+=vec3(.05,.30,.28)*pow(max(fbm(q*2.2-w-3.7)-.42,0.),1.6)*1.1;
+  /* звёзды тремя слоями с разной плотностью и цветовой температурой */
+  for(int L=0;L<3;L++){
+    float sc=float(L)*46.+70.;
+    vec2 g=q*sc;vec2 id=floor(g);
+    float r=h(id+float(L)*17.3);
+    if(r>.972){
+      vec2 c=fract(g)-.5+.32*(vec2(h(id+1.7),h(id+3.1))-.5);
+      float b=exp(-dot(c,c)*140.)*(.5+.5*sin(uT*(.6+r*2.)+r*30.));
+      col+=b*mix(vec3(.7,.82,1.),vec3(1.,.93,.72),h(id+9.1))*(1.-float(L)*.24);
+    }
+  }
+  float vig=smoothstep(1.05,.25,length(q*vec2(.78,1.15)));
+  gl_FragColor=vec4(col*vig,vig*.93);
+}`;
+
+/* Тела и кольца: экранные координаты считаются на стороне JS,
+   шейдер отвечает за форму, блик и затухание свечения. */
+const GLSL_BODY_V=`attribute vec2 aP;attribute vec2 aUV;attribute vec3 aC;attribute float aI;
+uniform vec2 uRes;varying vec2 vUV;varying vec3 vC;varying float vI;
+void main(){vUV=aUV;vC=aC;vI=aI;
+  gl_Position=vec4(aP/uRes*2.-1.,0.,1.);gl_Position.y*=-1.;}`;
+
+const GLSL_BODY_F=`precision highp float;
+varying vec2 vUV;varying vec3 vC;varying float vI;
+void main(){
+  vec2 c=vUV*2.-1.;float r=length(c);
+  /* мягкое свечение — экспоненциальное затухание, как у реального ореола */
+  float glow=exp(-r*r*4.2)*.42;
+  /* тело: сфера с ламбертовым затенением и бликом от одного источника */
+  float body=smoothstep(.30,.24,r);
+  vec3 nrm=vec3(c/.30,sqrt(max(1.-dot(c/.30,c/.30),0.)));
+  vec3 L=normalize(vec3(-.45,.6,.66));
+  float dif=max(dot(nrm,L),0.);
+  float spec=pow(max(dot(reflect(-L,nrm),vec3(0,0,1)),0.),22.)*.7;
+  vec3 col=(vC*(glow+body*(.22+dif*.85))+vec3(spec*body))*vI;
+  /* Альфа равна яркости: тёмные углы квадрата ничего не закрашивают.
+     При blendFunc(ONE,ONE) это корректное предумноженное сложение. */
+  gl_FragColor=vec4(col,clamp(max(max(col.r,col.g),col.b),0.,1.));
+}`;
+
+const GLSL_LINE_V=`attribute vec2 aP;attribute float aA;
+uniform vec2 uRes;varying float vA;
+void main(){vA=aA;gl_Position=vec4(aP/uRes*2.-1.,0.,1.);gl_Position.y*=-1.;}`;
+const GLSL_LINE_F=`precision highp float;varying float vA;uniform vec3 uC;
+void main(){vec3 c=uC*vA;gl_FragColor=vec4(c,clamp(max(max(c.r,c.g),c.b),0.,1.));}`;
+
+function initOrbGL(){
+  const cv=document.getElementById("orbgl");
+  if(!cv||!window.WebGLRenderingContext)return false;
+  let gl=null;
+  try{gl=cv.getContext("webgl",{alpha:true,antialias:true,premultipliedAlpha:false,
+      powerPreference:"low-power",depth:false});}catch(e){}
+  if(!gl)return false;
+
+  const sh=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;};
+  const prog=(v,f)=>{const p=gl.createProgram();
+    gl.attachShader(p,sh(gl.VERTEX_SHADER,v));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));
+    gl.linkProgram(p);
+    if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));return p;};
+
+  let P_BG,P_BODY,P_LINE;
+  try{P_BG=prog(GLSL_BG_V,GLSL_BG_F);P_BODY=prog(GLSL_BODY_V,GLSL_BODY_F);P_LINE=prog(GLSL_LINE_V,GLSL_LINE_F);}
+  catch(e){return false;}
+
+  const quad=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+  const bBody=gl.createBuffer(), bLine=gl.createBuffer();
+
+  /* --- геометрия системы: каждая волна — своя орбита в пространстве --- */
+  /* Орбиты почти компланарны, как в настоящей планетной системе: собственный
+     наклон у каждой всего несколько градусов. Угол обзора задаёт камера —
+     тогда орбиты проецируются вложенными эллипсами, а не роем. */
+  const ORB=[0,1,2,3,4,5].map(i=>({
+    r:150+i*88,
+    inc:(i%2?1:-1)*(0.035+i*0.014),     // собственный наклон, радианы
+    node:i*0.55,                         // поворот линии узлов
+    per:64+i*23                          // период обращения, секунды
+  }));
+  const BODIES=D.map(d=>{
+    const oi=Math.min(Math.max((d.wv|0)-1,0),5);
+    const grp=D.filter(x=>x.wv===d.wv);
+    return {id:d.id, o:oi,
+      a0:(grp.indexOf(d)/grp.length)*Math.PI*2 + oi*0.7,
+      sz:d.kn===3?15:d.kn===2?12:9.5};
+  });
+  const CAM=1750, COL={0:[.46,.49,.55],1:[.20,.96,.92],2:[.71,.95,.24]};
+
+  let W=0,H=0,DPR=1,raf=0,t0=performance.now(),still=false;
+  const bodyArr=new Float32Array((BODIES.length+1)*6*8); // +1 — центральная звезда
+  const lineArr=new Float32Array(ORB.length*96*2*3);
+
+  function resize(){
+    const r=cv.getBoundingClientRect();
+    DPR=Math.min(devicePixelRatio||1,1.75);
+    const w=Math.max(2,Math.round(r.width*DPR)), h=Math.max(2,Math.round(r.height*DPR));
+    if(w===W&&h===H)return;
+    W=w;H=h;cv.width=W;cv.height=H;gl.viewport(0,0,W,H);
+  }
+
+  /* Поворот точки: наклон плоскости, затем поворот вокруг оси взгляда,
+     затем медленное покачивание камеры — оно и даёт живой параллакс. */
+  const RMAX=ORB[ORB.length-1].r;
+  function proj(x,y,z,sx,sy,K){
+    /* наклон камеры, затем поворот вокруг вертикали, затем перспектива.
+       Ближние тела получают s>1 и становятся крупнее — это и есть объём. */
+    let y2=y*Math.cos(sx)-z*Math.sin(sx), z2=y*Math.sin(sx)+z*Math.cos(sx);
+    let x2=x*Math.cos(sy)+z2*Math.sin(sy); z2=-x*Math.sin(sy)+z2*Math.cos(sy);
+    const s=CAM/(CAM-z2);
+    return [W*.5+x2*s*K, H*.5+y2*s*K, s];
+  }
+
+  function frame(){
+    raf=0;
+    const t=(performance.now()-t0)/1000;
+    resize();
+    const sx=1.02+Math.sin(t*0.045)*0.055, sy=Math.sin(t*0.031)*0.13;
+    const K=W*0.42/RMAX;              // подгонка мировых единиц под холст
+
+    gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+
+    /* фон */
+    gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(P_BG);
+    gl.uniform2f(gl.getUniformLocation(P_BG,"uRes"),W,H);
+    gl.uniform1f(gl.getUniformLocation(P_BG,"uT"),t);
+    gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+    const ap=gl.getAttribLocation(P_BG,"p");
+    gl.enableVertexAttribArray(ap);gl.vertexAttribPointer(ap,2,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+
+    /* дальше всё светящееся — предумноженным сложением, как настоящий свет */
+    gl.blendFunc(gl.ONE,gl.ONE);
+
+    /* кольца орбит */
+    let li=0;
+    ORB.forEach(o=>{
+      for(let k=0;k<96;k++){
+        for(let e=0;e<2;e++){
+          const a=((k+e)/96)*Math.PI*2;
+          const lx=o.r*Math.cos(a), ly=o.r*Math.sin(a);
+          const yy=ly*Math.cos(o.inc), zz=ly*Math.sin(o.inc);
+          const X=lx*Math.cos(o.node)-yy*Math.sin(o.node);
+          const Y=lx*Math.sin(o.node)+yy*Math.cos(o.node);
+          const p=proj(X,Y,zz,sx,sy,K);
+          lineArr[li++]=p[0];lineArr[li++]=p[1];
+          lineArr[li++]=Math.max(0,(p[2]-.72)*.62);   // дальняя половина гаснет
+        }
+      }
+    });
+    gl.useProgram(P_LINE);
+    gl.uniform2f(gl.getUniformLocation(P_LINE,"uRes"),W,H);
+    gl.uniform3f(gl.getUniformLocation(P_LINE,"uC"),.58,.78,.26);
+    gl.bindBuffer(gl.ARRAY_BUFFER,bLine);
+    gl.bufferData(gl.ARRAY_BUFFER,lineArr,gl.DYNAMIC_DRAW);
+    const lp=gl.getAttribLocation(P_LINE,"aP"), la=gl.getAttribLocation(P_LINE,"aA");
+    gl.enableVertexAttribArray(lp);gl.vertexAttribPointer(lp,2,gl.FLOAT,false,12,0);
+    gl.enableVertexAttribArray(la);gl.vertexAttribPointer(la,1,gl.FLOAT,false,12,8);
+    gl.drawArrays(gl.LINES,0,li/3);
+
+    /* тела: дальние рисуем раньше, чтобы ближние ложились поверх */
+    const list=BODIES.map(b=>{
+      const o=ORB[b.o];
+      const a=b.a0+(t/o.per)*Math.PI*2*(b.o%2?-1:1);
+      const lx=o.r*Math.cos(a), ly=o.r*Math.sin(a);
+      const yy=ly*Math.cos(o.inc), zz=ly*Math.sin(o.inc);
+      const X=lx*Math.cos(o.node)-yy*Math.sin(o.node);
+      const Y=lx*Math.sin(o.node)+yy*Math.cos(o.node);
+      const p=proj(X,Y,zz,sx,sy,K);
+      return {p,b,s:p[2]};
+    }).sort((u,v)=>u.s-v.s);
+
+    let bi=0;
+    list.forEach(({p,b,s})=>{
+      const stt=st(b.id), c=COL[stt];
+      const rad=b.sz*K*s*(stt?3.4:2.4);           // горящие светят дальше
+      const I=stt===2?1.4:stt===1?1.2:.38*Math.min(s,1.1);
+      const push=(ox,oy,u,v)=>{
+        bodyArr[bi++]=p[0]+ox*rad; bodyArr[bi++]=p[1]+oy*rad;
+        bodyArr[bi++]=u; bodyArr[bi++]=v;
+        bodyArr[bi++]=c[0];bodyArr[bi++]=c[1];bodyArr[bi++]=c[2];
+        bodyArr[bi++]=I;
+      };
+      push(-1,-1,0,0);push(1,-1,1,0);push(-1,1,0,1);
+      push(1,-1,1,0);push(1,1,1,1);push(-1,1,0,1);
+    });
+    /* центральная звезда — то же тело, только крупное и яркое */
+    (function(){
+      const p=[W*.5,H*.5,1], rad=96*K;
+      const push=(ox,oy,u,v)=>{
+        bodyArr[bi++]=p[0]+ox*rad;bodyArr[bi++]=p[1]+oy*rad;
+        bodyArr[bi++]=u;bodyArr[bi++]=v;
+        bodyArr[bi++]=.80;bodyArr[bi++]=.97;bodyArr[bi++]=.42;
+        bodyArr[bi++]=2.15+Math.sin(t*.9)*.18;
+      };
+      push(-1,-1,0,0);push(1,-1,1,0);push(-1,1,0,1);
+      push(1,-1,1,0);push(1,1,1,1);push(-1,1,0,1);
+    })();
+
+    gl.useProgram(P_BODY);
+    gl.uniform2f(gl.getUniformLocation(P_BODY,"uRes"),W,H);
+    gl.bindBuffer(gl.ARRAY_BUFFER,bBody);
+    gl.bufferData(gl.ARRAY_BUFFER,bodyArr.subarray(0,bi),gl.DYNAMIC_DRAW);
+    const st32=32;
+    const A=n=>gl.getAttribLocation(P_BODY,n);
+    gl.enableVertexAttribArray(A("aP"));gl.vertexAttribPointer(A("aP"),2,gl.FLOAT,false,st32,0);
+    gl.enableVertexAttribArray(A("aUV"));gl.vertexAttribPointer(A("aUV"),2,gl.FLOAT,false,st32,8);
+    gl.enableVertexAttribArray(A("aC"));gl.vertexAttribPointer(A("aC"),3,gl.FLOAT,false,st32,16);
+    gl.enableVertexAttribArray(A("aI"));gl.vertexAttribPointer(A("aI"),1,gl.FLOAT,false,st32,28);
+    gl.drawArrays(gl.TRIANGLES,0,bi/8);
+
+    if(!still)raf=requestAnimationFrame(frame);
+  }
+
+  /* На телефоне и при системной настройке «уменьшить движение» рисуем
+     ровно один кадр: картинка остаётся, расход батареи — нет. */
+  still = matchMedia("(prefers-reduced-motion:reduce)").matches
+       || matchMedia("(max-width:960px)").matches;
+
+  cv.addEventListener("webglcontextlost",e=>{e.preventDefault();
+    if(raf)cancelAnimationFrame(raf);raf=0;document.querySelector(".head").classList.remove("gl-on");});
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden){if(raf)cancelAnimationFrame(raf);raf=0;}
+    else if(!raf&&!still){t0=performance.now()-1e3;frame();}
+  });
+  addEventListener("resize",()=>{if(still){resize();frame();}},{passive:true});
+
+  /* В неподвижном режиме кадр рисуется по запросу: иначе отметка курса
+     меняла бы цвет в списке, а на рисунке всё оставалось бы серым. */
+  orbRedraw=()=>{if(still)frame();};
+
+  document.querySelector(".head").classList.add("gl-on");
+  frame();
+  return true;
+}
+
 load().then(()=>{
   render();
+  try{ initOrbGL(); }catch(e){ /* остаётся SVG */ }
   if(mem)note("отметки живут до перезагрузки — сохрани прогресс кнопкой");
 });
 </script>
